@@ -1,5 +1,6 @@
 # std
-from collections import defaultdict
+import sys
+import logging
 
 # 3rd Party
 import numpy as np
@@ -9,11 +10,25 @@ import tensorflow as tf
 from load_data import Data
 from model import HyperER
 
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+formatter = logging.Formatter('%(asctime)s:%(name)s:%(levelname)s:%(message)s')
+
+stream_handler = logging.StreamHandler(sys.stdout)
+stream_handler.setLevel(logging.INFO)
+stream_handler.setFormatter(formatter)
+logger.addHandler(stream_handler)
+
+file_handler = logging.FileHandler('train.log')
+file_handler.setLevel(logging.INFO)
+file_handler.setFormatter(formatter)
+logger.addHandler(file_handler)
+
 try:
     tf.enable_eager_execution()
-    print('Running in Eager mode.')
+    logger.info('Running in Eager mode.')
 except ValueError:
-    print('Already running in Eager mode')
+    logger.info('Already running in Eager mode')
 
 
 class Train:
@@ -22,10 +37,10 @@ class Train:
                  model,
                  data,
                  learning_rate=0.001,
-                 num_epoch=10,
+                 num_epoch=100,
                  batch_size=128,
-                 decay_rate=0.,
-                 label_smoothing=0.):
+                 decay_rate=0.99,
+                 label_smoothing=0.1):
 
         self.model = model
         self.data = data
@@ -35,105 +50,89 @@ class Train:
         self.decay_rate = decay_rate
         self.label_smoothing = label_smoothing
 
-    @staticmethod
-    def get_data_idxs(data, entity_idxs, relation_idxs):
-
-        data_idxs = [(entity_idxs[data[i][0]], relation_idxs[data[i][1]],
-                      entity_idxs[data[i][2]]) for i in range(len(data))]
-
-        return data_idxs
-
-    @staticmethod
-    def get_er_vocab(data):
-
-        er_vocab = defaultdict(list)
-        for triple in data:
-            er_vocab[(triple[0], triple[1])].append(triple[2])
-
-        return er_vocab
-
-    def get_batch(self, er_vocab, er_vocab_pairs, idx):
-
-        batch = er_vocab_pairs[idx:min(idx + self.batch_size, len(er_vocab_pairs))]
-
-        # set all e2 relations for e1, r pair to true
-        targets = np.zeros((len(batch), len(self.data.entities)))
-
-        for idx, pair in enumerate(batch):
-            targets[idx, er_vocab[pair]] = 1.
-
-        targets = tf.convert_to_tensor(targets)
-
-        return np.array(batch), targets
-
     def loss(self, e1_idx, r_idx, targets):
 
-        predictions = self.model(e1_idx, r_idx, training=True)
+        logits = self.model(e1_idx, r_idx, training=True)
+        predictions = tf.sigmoid(logits)
         loss = tf.keras.backend.binary_crossentropy(
-            tf.cast(targets, tf.double), tf.cast(predictions, tf.double))
-        # loss = binary_crossentropy(targets, predictions, from_logits=False)
-        # loss = tf.keras.losses.sparse_categorical_crossentropy(tf.argmax(targets, 1), predictions)
-        # loss = tf.losses.softmax_cross_entropy(targets, predictions)
-        cost = tf.reduce_mean(loss)
+            tf.cast(targets, tf.float32), tf.cast(predictions, tf.float32))
 
-        # loss = tf.cast(targets, tf.double) * tf.cast(tf.log(predictions), tf.double)
-        # cost = -tf.reduce_sum(loss)
+        cost = tf.reduce_mean(loss)
 
         return cost
 
+    def accuracy(self, e1_idx, r_idx, targets):
+
+        logits = self.model(e1_idx, r_idx, training=True)
+
+        labels = tf.argmax(targets, 1)
+        classes = tf.argmax(logits, 1)
+
+        equality = tf.equal(tf.cast(classes, tf.int32), tf.cast(labels, tf.int32))
+        acc = tf.reduce_mean(tf.cast(equality, tf.float32))
+
+        return acc
+
     def train_and_eval(self):
-        # Prepare train input and targets
-        # Prepare training data
-        train_data_idxs = self.get_data_idxs(
-            self.data.train_data, self.model.entity_idxs, self.model.relation_idxs)
 
-        er_vocab = self.get_er_vocab(train_data_idxs)
+        global_step = tf.train.get_or_create_global_step()
+        learning_rate = tf.train.exponential_decay(
+            self.learning_rate,
+            global_step,
+            decay_steps=1337,
+            decay_rate=self.decay_rate,
+            staircase=True)
 
-        view_key = list(er_vocab.keys())[0]
-        print('sample enitity-relation: {}'.format(view_key))
-
-        er_vocab_pairs = list(er_vocab.keys())
-        print('er_vocab_pairs: {}'.format(len(er_vocab_pairs)))
-
-        optimizer = tf.train.AdamOptimizer(learning_rate=1e-3)
+        optimizer = tf.train.AdamOptimizer(learning_rate)
 
         losses = []
 
         # Training loop
         for epoch in range(self.num_epoch):
 
-            print(f'epoch: {epoch + 1}')
+            logger.info(f'epoch: {epoch + 1}')
 
             iteration = 0
 
-            for j in range(0, len(er_vocab_pairs), self.batch_size):
-                # x, y
-                train_batch, train_targets = self.get_batch(er_vocab, er_vocab_pairs, j)
+            logger.info('loading data set...')
+            train_data = self.data.get_inputs_and_targets(training=True)
+            logger.info('train_data: {}'.format(train_data))
+            logger.info('loaded dataset!')
+
+            for train_inputs, train_targets in train_data:
 
                 # Entitty and relation training ids
-                e1_idx = train_batch[:, 0]
-                r_idx = train_batch[:, 1]
+                e1_idx = tf.slice(train_inputs, [0, 0], [train_inputs.shape[0].value, 1])
+                r_idx = tf.slice(train_inputs, [0, 1], [train_inputs.shape[0].value, 1])
 
                 if self.label_smoothing:
-                    targets = ((1.0 - self.label_smoothing) * train_targets) + \
+                    train_targets = ((1.0 - self.label_smoothing) * train_targets) + \
                         (1.0 / train_targets.shape[1].value)
-                else:
-                    targets = train_targets
 
-                optimizer.minimize(lambda: self.loss(e1_idx, r_idx, targets))
+                extra_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
 
-                if j % (self.batch_size * 10) == 0:
-                    print(f'iteration: {iteration + 1}')
+                cost = self.loss(e1_idx, r_idx, train_targets)
 
-                    cost = self.loss(e1_idx, r_idx, targets)
-                    print(f'cost: {cost}')
-                    # print(f'predictions: {model(r, e1, e2)}')
+                with tf.control_dependencies(extra_ops):
+                    optimizer.minimize(lambda: self.loss(e1_idx, r_idx, train_targets),
+                                       global_step=global_step)
+
+                if iteration % 10 == 0:
+                    logger.info('ITERATION: {}'.format(iteration + 1))
+
+                    cost = self.loss(e1_idx, r_idx, train_targets)
+                    logger.info('cost: {}'.format(cost))
+
+                    accuracy = self.accuracy(e1_idx, r_idx, train_targets)
+                    logger.info('accuracy: {}'.format(accuracy))
+
+                    logger.info(f'learning_rate: {learning_rate()}')
+                    logger.info(f'global_step: {global_step}')
 
                 iteration += 1
 
             losses.append(cost)
-            print(f'mean cost: {np.mean(losses)}')
-            print()
+            logger.info('mean cost: {}'.format(np.mean(losses)))
 
             # Validate model
             self.evaluate()
@@ -146,25 +145,80 @@ class Train:
         for i in range(10):
             hits.append([])
 
-        valid_data_idxs = self.get_data_idxs(
-            self.data.valid_data, self.model.entity_idxs, self.model.relation_idxs)
-        er_vocab = self.get_er_vocab(valid_data_idxs)
+        # validation_data = self.data.get_inputs_and_targets()
+        val_data_idxs = self.data.get_data_idxs(
+            self.data.valid_data, self.data.entity_idxs, self.data.relation_idxs)
+        er_vocab = self.data.get_er_vocab(val_data_idxs)
 
-        print(f'Number of data points: {len(valid_data_idxs)}')
+        print("Number of data points: %d" % len(val_data_idxs))
 
-        for i in range(0, len(valid_data_idxs), self.batch_size):
+        iteration = 0
 
-            valid_batch, _ = self.get_batch(er_vocab, valid_data_idxs, i)
+        for i in range(0, len(val_data_idxs), self.batch_size):
 
-            e1_idx = valid_batch[:, 0]
-            r_idx = valid_batch[:, 1]
-            e2_idx = valid_batch[:, 2]
+            data_batch, _ = self.data.get_batch(er_vocab, val_data_idxs, i)
 
-            predictions = self.model(e1_idx, r_idx)  # model.forward(e1_idx, r_idx)
+            e1_idx = data_batch[:, 0]
+            r_idx = data_batch[:, 1]
+            e2_idx = data_batch[:, 2]
 
-            sort_idxs = tf.argsort(predictions, axis=1, direction='DESCENDING')
+            logits = self.model(e1_idx, r_idx)
+            logits = np.array(logits)
 
-            for j in range(valid_batch.shape[0]):
+            for j in range(data_batch.shape[0]):
+
+                filt = er_vocab[(data_batch[j][0], data_batch[j][1])]
+                target_value = logits[j, e2_idx[j]]
+                logits[j, filt] = 0.0
+                logits[j, e2_idx[j]] = target_value
+
+            logits = tf.convert_to_tensor(logits)
+            sort_idxs = tf.argsort(logits, axis=1, direction='DESCENDING')
+            sort_idxs = sort_idxs.cpu().numpy()
+
+            for j in range(data_batch.shape[0]):
+
+                rank = np.where(sort_idxs[j] == e2_idx[j])[0][0]
+                ranks.append(rank + 1)
+
+                for hits_level in range(10):
+
+                    if rank <= hits_level:
+                        hits[hits_level].append(1.0)
+                    else:
+                        hits[hits_level].append(0.0)
+
+            iteration += 1
+
+        logger.info('Hits @10: {0}'.format(np.mean(hits[9])))
+        logger.info('Hits @3: {0}'.format(np.mean(hits[2])))
+        logger.info('Hits @1: {0}'.format(np.mean(hits[0])))
+        logger.info('Mean rank: {0}'.format(np.mean(ranks)))
+        logger.info('Mean reciprocal rank: {0}'.format(np.mean(1. / np.array(ranks))))
+
+    def test(self):
+
+        hits = []
+        ranks = []
+
+        for i in range(10):
+            hits.append([])
+
+        test_data = self.data.get_inputs_and_targets(test_data_idxs)
+
+        for inputs_test, _ in test_data.batch(self.batch_size):
+
+            inputs_test = np.array(inputs_test)
+
+            e1_idx = inputs_test[:, 0]
+            r_idx = inputs_test[:, 1]
+            e2_idx = inputs_test[:, 2]
+
+            logits = self.model(e1_idx, r_idx)
+
+            sort_idxs = tf.argsort(logits, axis=1, direction='DESCENDING')
+
+            for j in range(inputs_test.shape[0]):
 
                 rank = np.where(np.array(sort_idxs[j]) == e2_idx[j])[0][0]
                 ranks.append(rank + 1)
@@ -176,12 +230,11 @@ class Train:
                     else:
                         hits[hits_level].append(0.0)
 
-        print('Hits @10: {0}'.format(np.mean(hits[9])))
-        print('Hits @3: {0}'.format(np.mean(hits[2])))
-        print('Hits @1: {0}'.format(np.mean(hits[0])))
-        print('Mean rank: {0}'.format(np.mean(ranks)))
-        print('Mean reciprocal rank: {0}'.format(np.mean(1. / np.array(ranks))))
-        print()
+        logger.info('Hits @10: {0}'.format(np.mean(hits[9])))
+        logger.info('Hits @3: {0}'.format(np.mean(hits[2])))
+        logger.info('Hits @1: {0}'.format(np.mean(hits[0])))
+        logger.info('Mean rank: {0}'.format(np.mean(ranks)))
+        logger.info('Mean reciprocal rank: {0}'.format(np.mean(1. / np.array(ranks))))
 
 
 if __name__ == '__main__':
@@ -189,12 +242,11 @@ if __name__ == '__main__':
     # Load data
     data = Data(dataset='WN18', reverse=True)
 
-    entities = data.entities
-    relations = data.relations
-
     # Intialise model
-    hypER = HyperER(entities, relations)
+    hypER = HyperER(len(data.entities), len(data.relations))
 
     # intialise build
-    trainer = Train(hypER, data, num_epoch=10)
+    trainer = Train(hypER, data, num_epoch=100)
     trainer.train_and_eval()
+    # trainer.evaluate()
+    # trainer.test()

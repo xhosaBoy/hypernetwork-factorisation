@@ -1,4 +1,15 @@
+# std
 import os
+from collections import defaultdict
+
+# 3rd Party
+import numpy as np
+import tensorflow as tf
+
+try:
+    from StringIO import StringIO
+except ImportError:
+    from io import StringIO
 
 
 class Data:
@@ -21,6 +32,177 @@ class Data:
                                                  if i not in self.train_relations] + [i for i in self.test_relations
                                                                                       if i not in self.train_relations]
 
+        self.entity_idxs = {self.entities[i]: i for i in range(len(self.entities))}
+        self.relation_idxs = {self.relations[i]: i for i in range(len(self.relations))}
+
+    # Use a custom OpenCV function to read the image, instead of the standard
+    # TensorFlow `tf.read_file()` operation.
+    def _read_py_function(self, input, label):
+        # image_decoded = cv2.imread(filename.decode(), cv2.IMREAD_GRAYSCALE)
+        label_one_hot = np.zeros(len(self.entities))
+        label_one_hot[label] = 1
+
+        input = tf.cast(input, tf.int32)
+        label_one_hot = tf.constant(label_one_hot)
+        label_one_hot = tf.cast(label_one_hot, tf.int32)
+        return input, label_one_hot
+
+    # The following functions can be used to convert a value to a type compatible
+    # with tf.Example.
+    def _bytes_feature(slef, value):
+        """Returns a bytes_list from a string / byte."""
+        return tf.train.Feature(bytes_list=tf.train.BytesList(value=[value]))
+
+    def _float_feature(self, value):
+        """Returns a float_list from a float / double."""
+        return tf.train.Feature(float_list=tf.train.FloatList(value=[value]))
+
+    def _int64_feature(self, value):
+        """Returns an int64_list from a bool / enum / int / uint."""
+        return tf.train.Feature(int64_list=tf.train.Int64List(value=[value]))
+
+    def serialize_example(self, inputs, targets):
+        """
+        Creates a tf.Example message ready to be written to a file.
+        """
+
+        # Create a dictionary mapping the feature name to the tf.Example-compatible
+        # data type.
+
+        sample = {
+            'inputs': self._int64_feature(inputs),
+            'targets': self._bytes_feature(targets)
+        }
+
+        # Create a Features message using tf.train.Example.
+        example_proto = tf.train.Example(features=tf.train.Features(feature=sample))
+
+        return example_proto.SerializeToString()
+
+    def tf_serialize_example(self, inputs, targets):
+
+        tf_string = tf.py_func(
+            self.serialize_example,
+            (inputs, targets),  # pass these args to the above function.
+            tf.string)      # the return type is <a href="../../api_docs/python/tf#string"><code>tf.string</code></a>.
+
+        return tf.reshape(tf_string, ())  # The result is a scalar
+
+    def _parse_example(self, x, y):
+
+        x = tf.cast(x, tf.int32)
+        y = tf.cast(y, tf.int32)
+
+        return x, y
+
+    def _parse_vocabulary(self, x, lst):
+
+        lst.append(x)
+
+        return lst
+
+    def _parse_function_train(self, example_proto):
+
+        sample_description = {
+            'X': tf.FixedLenFeature([2], tf.int64, default_value=[0, 0]),
+            'Y': tf.FixedLenFeature([40943], tf.float32, default_value=[0.0] * 40943),
+        }
+
+        batch = tf.parse_single_example(example_proto, sample_description)
+        inputs = tf.cast(batch['X'], tf.int32)
+        targets = batch['Y']
+
+        return inputs, targets
+
+    def _parse_function(self, example_proto):
+
+        sample_description = {
+            'X': tf.FixedLenFeature([3], tf.int64, default_value=[0, 0, 0]),
+            'Y': tf.FixedLenFeature([40943], tf.float32, default_value=[0.0] * 40943),
+        }
+
+        batch = tf.parse_single_example(example_proto, sample_description)
+        inputs = tf.cast(batch['X'], tf.int32)
+        targets = batch['Y']
+
+        return inputs, targets
+
+    def np_to_tfrecords(self, X, Y, file_path_prefix, verbose=True):
+        """
+        Converts a Numpy array (or two Numpy arrays) into a tfrecord file.
+        For supervised learning, feed training inputs to X and training labels to Y.
+        For unsupervised learning, only feed training inputs to X, and feed None to Y.
+        The length of the first dimensions of X and Y should be the number of samples.
+
+        Parameters
+        ----------
+        X : numpy.ndarray of rank 2
+            Numpy array for training inputs. Its dtype should be float32, float64, or int64.
+            If X has a higher rank, it should be rshape before fed to this function.
+        Y : numpy.ndarray of rank 2 or None
+            Numpy array for training labels. Its dtype should be float32, float64, or int64.
+            None if there is no label array.
+        file_path_prefix : str
+            The path and name of the resulting tfrecord file to be generated, without '.tfrecords'
+        verbose : bool
+            If true, progress is reported.
+
+        Raises
+        ------
+        ValueError
+            If input type is not float (64 or 32) or int.
+
+        """
+        def _dtype_feature(ndarray):
+            """match appropriate tf.train.Feature class with dtype of ndarray. """
+            assert isinstance(ndarray, np.ndarray)
+            dtype_ = ndarray.dtype
+            if dtype_ == np.float64 or dtype_ == np.float32:
+                return lambda array: tf.train.Feature(float_list=tf.train.FloatList(value=array))
+            elif dtype_ == np.int64:
+                return lambda array: tf.train.Feature(int64_list=tf.train.Int64List(value=array))
+            else:
+                raise ValueError("The input should be numpy ndarray. \
+                                   Instaed got {}".format(ndarray.dtype))
+
+        assert isinstance(X, np.ndarray)
+        assert len(X.shape) == 2  # If X has a higher rank,
+        # it should be rshape before fed to this function.
+        assert isinstance(Y, np.ndarray) or Y is None
+
+        # load appropriate tf.train.Feature class depending on dtype
+        dtype_feature_x = _dtype_feature(X)
+        if Y is not None:
+            assert X.shape[0] == Y.shape[0]
+            assert len(Y.shape) == 2
+            dtype_feature_y = _dtype_feature(Y)
+
+        # Generate tfrecord writer
+        result_tf_file = file_path_prefix + '.tfrecords'
+        writer = tf.python_io.TFRecordWriter(result_tf_file)
+        if verbose:
+            print("Serializing {:d} examples into {}".format(X.shape[0], result_tf_file))
+
+        # iterate over each sample,
+        # and serialize it as ProtoBuf.
+        for idx in range(X.shape[0]):
+            x = X[idx]
+            if Y is not None:
+                y = Y[idx]
+
+            d_feature = {}
+            d_feature['X'] = dtype_feature_x(x)
+            if Y is not None:
+                d_feature['Y'] = dtype_feature_y(y)
+
+            features = tf.train.Features(feature=d_feature)
+            example = tf.train.Example(features=features)
+            serialized = example.SerializeToString()
+            writer.write(serialized)
+
+        if verbose:
+            print("Writing {} done!".format(result_tf_file))
+
     def load_data(self, dataset, data_type='train.txt', reverse=False):
 
         path = os.path.join(self.project, self.dirname, dataset, data_type)
@@ -31,7 +213,7 @@ class Data:
             data = [sample.split() for sample in data]
 
             if reverse:
-                data += [[triple[2], f'{triple[1]}_reverse', triple[0]] for triple in data]
+                data += [[triple[2], '{}_reverse'.format(triple[1]), triple[0]] for triple in data]
 
         return data
 
@@ -48,10 +230,119 @@ class Data:
 
         return relations
 
-    def get_path(self, filename):
+    def get_data_idxs(self, data, entity_idxs, relation_idxs):
 
-        dirname = os.path.dirname(__file__)
-        filename = filename
-        path = os.path.join(dirname, filename)
+        data_idxs = [(entity_idxs[data[i][0]], relation_idxs[data[i][1]],
+                      entity_idxs[data[i][2]]) for i in range(len(data))]
 
-        return path
+        return data_idxs
+
+    def get_er_vocab(self, data):
+
+        print('Constructing er_vocab...')
+        er_vocab = defaultdict(list)
+        print('data type: {}'.format(type(data)))
+
+        print('looping over list....')
+        for triple in data:
+            er_vocab[(triple[0], triple[1])].append(triple[2])
+        print('er_vocab construction complete!')
+
+        return er_vocab
+
+    def get_batch(self, er_vocab, er_vocab_pairs, idx):
+
+        batch = er_vocab_pairs[idx:min(idx + 128, len(er_vocab_pairs))]
+
+        targets = np.zeros((len(batch), len(self.entities)))
+
+        for idx, pair in enumerate(batch):
+            targets[idx, er_vocab[pair]] = 1.
+
+        return np.array(batch), targets
+
+    def make_source_data(self, data_idxs, data_type='train'):
+
+        data_idxs = np.array(data_idxs)
+
+        if data_type == 'train':
+            er_vocab = self.get_er_vocab(data_idxs)
+            er_vocab_pairs = list(er_vocab.keys())
+
+            inputs = er_vocab_pairs
+            inputs = np.array(inputs)
+
+            # set all e2 relations for e1, r pair to true
+            targets = np.zeros((len(inputs), len(self.entities)))
+
+            for idx, pair in enumerate(er_vocab_pairs):
+                targets[idx, er_vocab[pair]] = 1.
+        else:
+            inputs = data_idxs
+            inputs = np.array(inputs)
+
+            targets = np.zeros((len(inputs), len(self.entities)))
+
+            for idx, triple in enumerate(inputs):
+                targets[idx, triple[2]] = 1.
+
+        # Assume that each row of `features` corresponds to the same row as `labels`.
+        assert inputs.shape[0] == targets.shape[0]
+
+        print('inputs shape: {}'.format(inputs.shape))
+        print('targets shape: {}'.format(targets.shape))
+
+        print('writing to {} file...'.format(data_type))
+
+        self.np_to_tfrecords(inputs, targets, '{}_dataset'.format(data_type))
+
+        print('writing to {} file complete!'.format(data_type))
+
+        print('reading from {} file...'.format(data_type))
+
+        raw_dataset = tf.data.TFRecordDataset('{}_dataset.tfrecords'.format(data_type))
+        print('raw_dataset: {}'.format(raw_dataset))
+
+        print('reading from {} file complete!'.format(data_type))
+
+        parsed_dataset = raw_dataset.map(self._parse_function)
+        print('parsed_dataset: {}'.format(parsed_dataset))
+
+    def get_inputs_and_targets(self, training=False):
+
+        if training:
+
+            print('reading from training file...')
+
+            raw_dataset = tf.data.TFRecordDataset('train_dataset.tfrecords')
+
+            # raw_dataset = tf.data.TFRecordDataset(
+            #     'gs://epoch-staging-bucket/hyppernetwork-factorisation/data/train_dataset.tfrecords')
+
+            print('reading from training file complete!')
+
+            parsed_dataset = raw_dataset.apply(
+                tf.contrib.data.map_and_batch(
+                    self._parse_function_train,
+                    batch_size=128,
+                    num_parallel_batches=None,
+                    drop_remainder=True))
+
+        else:
+            print('reading from validation file...')
+
+            raw_dataset = tf.data.TFRecordDataset('val_dataset.tfrecords')
+
+            # raw_dataset = tf.data.TFRecordDataset(
+            #     'gs://epoch-staging-bucket/hyppernetwork-factorisation/data/val_dataset.tfrecords')
+
+            print('reading from validation file complete!')
+
+            parsed_dataset = raw_dataset.apply(
+                tf.contrib.data.map_and_batch(
+                    self._parse_function,
+                    batch_size=128,
+                    num_parallel_batches=None,
+                    drop_remainder=True))
+
+        return parsed_dataset
