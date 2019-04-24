@@ -1,21 +1,16 @@
 import tensorflow as tf
-import tensorflow.contrib.eager as tfe
 
 
 class HyperER(tf.keras.Model):
 
-    def __init__(self, entities, relations):
+    def __init__(self, num_entities, num_relations):
 
-        super().__init__()
-
-        self.entities = entities
-        self.relations = relations
-
-        self.entity_idxs = {self.entities[i]: i for i in range(len(self.entities))}
-        self.relation_idxs = {self.relations[i]: i for i in range(len(self.relations))}
+        super(HyperER, self).__init__()
 
         self.entity_dim = 200
         self.relation_dim = 200
+        self.num_entities = num_entities
+        self.num_relations = num_relations
 
         self.in_channels = 1
         self.out_channels = 32
@@ -30,19 +25,20 @@ class HyperER(tf.keras.Model):
         self.feature_map_drop = 0.2
         self.hidden_drop = 0.3
 
-        self.weights_dense1 = tfe.Variable(tf.glorot_normal_initializer()(
+        self.weights_dense1 = tf.Variable(lambda: tf.glorot_normal_initializer()(
             [self.relation_dim, self.dense1_size_out]))
-        self.bias_dense1 = tfe.Variable(tf.glorot_normal_initializer()([self.dense1_size_out]))
+        self.bias_dense1 = tf.Variable(
+            lambda: tf.glorot_normal_initializer()([self.dense1_size_out]))
 
-        self.weights_dense2 = tfe.Variable(
-            tf.glorot_normal_initializer()([self.dense2_size_in, self.entity_dim]))
-        self.bias_dense2 = tfe.Variable(tf.glorot_normal_initializer()([self.entity_dim]))
+        self.weights_dense2 = tf.Variable(lambda:
+                                          tf.glorot_normal_initializer()([self.dense2_size_in, self.entity_dim]))
+        self.bias_dense2 = tf.Variable(lambda: tf.glorot_normal_initializer()([self.entity_dim]))
 
-        # Generate random embedding representaitons for entities and relations
-        self.embedding_matrix_entities = tfe.Variable(
-            tf.glorot_normal_initializer()([len(entities), self.entity_dim]))
-        self.embedding_matrix_relations = tfe.Variable(
-            tf.glorot_normal_initializer()([len(relations), self.relation_dim]))
+        # Generate random embedding representaitons for  and relations
+        self.embedding_matrix_entities = tf.Variable(lambda:
+                                                     tf.glorot_normal_initializer()([self.num_entities, self.entity_dim]))
+        self.embedding_matrix_relations = tf.Variable(lambda:
+                                                      tf.glorot_normal_initializer()([self.num_relations, self.relation_dim]))
 
     def conv1(self, x, k):
         conv_layer = tf.nn.depthwise_conv2d(x, k, [1, 1, 1, 1], padding='VALID')
@@ -74,7 +70,7 @@ class HyperER(tf.keras.Model):
         e1 = tf.nn.embedding_lookup(self.embedding_matrix_entities, [e1_idx])
         r = tf.nn.embedding_lookup(self.embedding_matrix_relations, [r_idx])
         e2 = tf.nn.embedding_lookup(self.embedding_matrix_entities, [
-                                    id for id in range(len(self.entities))])
+                                    id for id in range(self.num_entities)])
 
         # Compute hyper relational filters
         r = tf.reshape(r, [-1, 200])
@@ -121,8 +117,7 @@ class HyperER(tf.keras.Model):
         x = self.dense2(x)  # out shape 128 x 200
         x = self.dropout(x, training, self.hidden_drop)
 
-        # Link prediction
+        # Link prediction logits
         logits = tf.matmul(x, tf.transpose(e2))
-        predictions = tf.sigmoid(logits)
 
-        return predictions
+        return logits

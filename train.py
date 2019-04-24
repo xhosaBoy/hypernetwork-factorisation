@@ -1,6 +1,3 @@
-# std
-from collections import defaultdict
-
 # 3rd Party
 import numpy as np
 import tensorflow as tf
@@ -35,44 +32,16 @@ class Train:
         self.decay_rate = decay_rate
         self.label_smoothing = label_smoothing
 
-    @staticmethod
-    def get_data_idxs(data, entity_idxs, relation_idxs):
-
-        data_idxs = [(entity_idxs[data[i][0]], relation_idxs[data[i][1]],
-                      entity_idxs[data[i][2]]) for i in range(len(data))]
-
-        return data_idxs
-
-    @staticmethod
-    def get_er_vocab(data):
-
-        er_vocab = defaultdict(list)
-        for triple in data:
-            er_vocab[(triple[0], triple[1])].append(triple[2])
-
-        return er_vocab
-
-    def get_batch(self, er_vocab, er_vocab_pairs, idx):
-
-        batch = er_vocab_pairs[idx:min(idx + self.batch_size, len(er_vocab_pairs))]
-
-        # set all e2 relations for e1, r pair to true
-        targets = np.zeros((len(batch), len(self.data.entities)))
-
-        for idx, pair in enumerate(batch):
-            targets[idx, er_vocab[pair]] = 1.
-
-        targets = tf.convert_to_tensor(targets)
-
-        return np.array(batch), targets
-
     def loss(self, e1_idx, r_idx, targets):
 
-        predictions = self.model(e1_idx, r_idx, training=True)
-        loss = tf.keras.backend.binary_crossentropy(
-            tf.cast(targets, tf.double), tf.cast(predictions, tf.double))
+        logits = self.model(e1_idx, r_idx, training=True)
+        predictions = tf.sigmoid(logits)
+        # loss = tf.keras.backend.binary_crossentropy(
+        #     tf.cast(targets, tf.double), tf.cast(predictions, tf.double))
         # loss = binary_crossentropy(targets, predictions, from_logits=False)
+        loss = tf.keras.losses.sparse_categorical_crossentropy(targets, predictions)
         # loss = tf.keras.losses.sparse_categorical_crossentropy(tf.argmax(targets, 1), predictions)
+
         # loss = tf.losses.softmax_cross_entropy(targets, predictions)
         cost = tf.reduce_mean(loss)
 
@@ -83,19 +52,12 @@ class Train:
 
     def train_and_eval(self):
         # Prepare train input and targets
-        # Prepare training data
-        train_data_idxs = self.get_data_idxs(
-            self.data.train_data, self.model.entity_idxs, self.model.relation_idxs)
+        train_data_idxs = self.data.get_data_idxs(
+            self.data.train_data, self.data.entity_idxs, self.data.relation_idxs)
 
-        er_vocab = self.get_er_vocab(train_data_idxs)
+        learning_rate = self.learning_rate
 
-        view_key = list(er_vocab.keys())[0]
-        print('sample enitity-relation: {}'.format(view_key))
-
-        er_vocab_pairs = list(er_vocab.keys())
-        print('er_vocab_pairs: {}'.format(len(er_vocab_pairs)))
-
-        optimizer = tf.train.AdamOptimizer(learning_rate=1e-3)
+        optimizer = tf.train.AdamOptimizer(learning_rate)
 
         losses = []
 
@@ -106,28 +68,44 @@ class Train:
 
             iteration = 0
 
-            for j in range(0, len(er_vocab_pairs), self.batch_size):
-                # x, y
-                train_batch, train_targets = self.get_batch(er_vocab, er_vocab_pairs, j)
+            print('loading data set...')
+            train_data = self.data.get_inputs_and_targets(train_data_idxs, training=True)
+            print('loaded dataset!')
+
+            for inputs_train, targets_train in train_data.take(1000).shuffle(buffer_size=50000).batch(self.batch_size):
+
+                # print('getting er_vocab....')
+                # er_vocab = self.data.get_er_vocab(inputs_train)
+                # print('er vocab type: {}'.format(type(er_vocab)))
+                # er_vocab_pairs = list(er_vocab.keys())
+
+                # inputs_train = np.array(er_vocab_pairs)
 
                 # Entitty and relation training ids
-                e1_idx = train_batch[:, 0]
-                r_idx = train_batch[:, 1]
+                # e1_idx = inputs_train[:, 0]
+                e1_idx = tf.slice(inputs_train, [0, 0], [inputs_train.shape[0].value, 1])
+                # print('e1_idx: {}'.format(e1_idx))
+                # r_idx = inputs_train[:, 1]
+                r_idx = tf.slice(inputs_train, [0, 1], [inputs_train.shape[0].value, 1])
 
-                if self.label_smoothing:
-                    targets = ((1.0 - self.label_smoothing) * train_targets) + \
-                        (1.0 / train_targets.shape[1].value)
-                else:
-                    targets = train_targets
+                # print('targets_train: {}'.format(targets_train))
 
-                optimizer.minimize(lambda: self.loss(e1_idx, r_idx, targets))
+                # targets_train = np.zeros((len(inputs_train), len(self.data.entities)))
+                # for idx, pair in enumerate(er_vocab_pairs):
+                #     print('index: {}'.format(er_vocab[pair]))
+                #     targets_train[idx, er_vocab[pair]] = 1.
 
-                if j % (self.batch_size * 10) == 0:
+                # if self.label_smoothing:
+                #     targets_train = ((1.0 - self.label_smoothing) * targets_train) + \
+                #         (1.0 / targets_train.shape[1].value)
+
+                optimizer.minimize(lambda: self.loss(e1_idx, r_idx, targets_train))
+
+                if iteration % 10 == 0:
                     print(f'iteration: {iteration + 1}')
 
-                    cost = self.loss(e1_idx, r_idx, targets)
+                    cost = self.loss(e1_idx, r_idx, targets_train)
                     print(f'cost: {cost}')
-                    # print(f'predictions: {model(r, e1, e2)}')
 
                 iteration += 1
 
@@ -146,25 +124,85 @@ class Train:
         for i in range(10):
             hits.append([])
 
-        valid_data_idxs = self.get_data_idxs(
-            self.data.valid_data, self.model.entity_idxs, self.model.relation_idxs)
-        er_vocab = self.get_er_vocab(valid_data_idxs)
+        valid_data_idxs = self.data.get_data_idxs(
+            self.data.valid_data, self.data.entity_idxs, self.data.relation_idxs)
 
-        print(f'Number of data points: {len(valid_data_idxs)}')
+        print(f'Number of validation data points: {len(valid_data_idxs)}')
 
-        for i in range(0, len(valid_data_idxs), self.batch_size):
+        validation_data = self.data.get_inputs_and_targets(valid_data_idxs)
 
-            valid_batch, _ = self.get_batch(er_vocab, valid_data_idxs, i)
+        for inputs_validation, labels_validation in validation_data.batch(self.batch_size):
 
-            e1_idx = valid_batch[:, 0]
-            r_idx = valid_batch[:, 1]
-            e2_idx = valid_batch[:, 2]
+            # inputs_validation = np.array(inputs_validation)
 
-            predictions = self.model(e1_idx, r_idx)  # model.forward(e1_idx, r_idx)
+            # e1_idx = inputs_validation[:, 0]
+            e1_idx = tf.slice(inputs_validation, [0, 0], [inputs_validation.shape[0].value, 1])
+            # r_idx = inputs_validation[:, 1]
+            r_idx = tf.slice(inputs_validation, [0, 1], [inputs_validation.shape[0].value, 1])
+            # e2_idx = inputs_validation[:, 2]
+            e2_idx = labels_validation
 
-            sort_idxs = tf.argsort(predictions, axis=1, direction='DESCENDING')
+            logits = self.model(e1_idx, r_idx)
 
-            for j in range(valid_batch.shape[0]):
+            # e2_idx = tf.convert_to_tensor(e2_idx)
+            sort_idxs = tf.argsort(logits, axis=1, direction='DESCENDING')
+
+            # print('e2_idx[0]: {}'.format(e2_idx[0]))
+            # print('tf.where: {}'.format(tf.where(tf.equal(sort_idxs[0], e2_idx[0]))))
+
+            for j in range(inputs_validation.shape[0]):
+
+                rank = tf.where(tf.equal(sort_idxs[j], e2_idx[j]))
+                ranks.append(rank + 1)
+
+                for hits_level in range(10):
+
+                    # if rank <= hits_level:
+                    #     hits[hits_level].append(1.0)
+                    # else:
+                    #     hits[hits_level].append(0.0)
+
+                    # print('rank: {}'.format(tf.squeeze(rank)))
+                    # print('hits_level: {}'.format(hits_level))
+                    result = tf.cond(tf.squeeze(rank) <= hits_level, lambda: 1.0, lambda: 0.0)
+                    hits[hits_level].append(result)
+
+        print('Hits @10: {0}'.format(tf.reduce_mean(hits[9])))
+        print('Hits @3: {0}'.format(tf.reduce_mean(hits[2])))
+        print('Hits @1: {0}'.format(tf.reduce_mean(hits[0])))
+        print('Mean rank: {0}'.format(tf.reduce_mean(ranks)))
+        print('Mean reciprocal rank: {0}'.format(tf.reduce_mean(
+            tf.math.reciprocal(tf.cast(ranks, tf.float32)))))
+        print()
+
+    def test(self):
+
+        hits = []
+        ranks = []
+
+        for i in range(10):
+            hits.append([])
+
+        test_data_idxs = self.data.get_data_idxs(
+            self.data.test_data, self.data.entity_idxs, self.data.relation_idxs)
+
+        print(f'Number of test data points: {len(test_data_idxs)}')
+
+        test_data = self.data.get_inputs_and_targets(test_data_idxs)
+
+        for inputs_test, _ in test_data.batch(self.batch_size):
+
+            inputs_test = np.array(inputs_test)
+
+            e1_idx = inputs_test[:, 0]
+            r_idx = inputs_test[:, 1]
+            e2_idx = inputs_test[:, 2]
+
+            logits = self.model(e1_idx, r_idx)
+
+            sort_idxs = tf.argsort(logits, axis=1, direction='DESCENDING')
+
+            for j in range(inputs_test.shape[0]):
 
                 rank = np.where(np.array(sort_idxs[j]) == e2_idx[j])[0][0]
                 ranks.append(rank + 1)
@@ -189,12 +227,10 @@ if __name__ == '__main__':
     # Load data
     data = Data(dataset='WN18', reverse=True)
 
-    entities = data.entities
-    relations = data.relations
-
     # Intialise model
-    hypER = HyperER(entities, relations)
+    hypER = HyperER(len(data.entities), len(data.relations))
 
     # intialise build
-    trainer = Train(hypER, data, num_epoch=10)
+    trainer = Train(hypER, data, num_epoch=2)
     trainer.train_and_eval()
+    # trainer.test()
