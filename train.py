@@ -35,11 +35,12 @@ class Train:
     def loss(self, e1_idx, r_idx, targets):
 
         logits = self.model(e1_idx, r_idx, training=True)
+        # print('logits shape: {}'.format(logits.shape))
         predictions = tf.sigmoid(logits)
-        # loss = tf.keras.backend.binary_crossentropy(
-        #     tf.cast(targets, tf.double), tf.cast(predictions, tf.double))
+        loss = tf.keras.backend.binary_crossentropy(
+            tf.cast(targets, tf.float32), tf.cast(predictions, tf.float32))
         # loss = binary_crossentropy(targets, predictions, from_logits=False)
-        loss = tf.keras.losses.sparse_categorical_crossentropy(targets, predictions)
+        # loss = tf.keras.losses.sparse_categorical_crossentropy(targets, predictions)
         # loss = tf.keras.losses.sparse_categorical_crossentropy(tf.argmax(targets, 1), predictions)
 
         # loss = tf.losses.softmax_cross_entropy(targets, predictions)
@@ -70,9 +71,12 @@ class Train:
 
             print('loading data set...')
             train_data = self.data.get_inputs_and_targets(train_data_idxs, training=True)
+            print(f'train_data: {train_data}')
             print('loaded dataset!')
 
-            for inputs_train, targets_train in train_data.take(1000).shuffle(buffer_size=50000).batch(self.batch_size):
+            for train_inputs, train_targets in train_data:
+
+                print(f'inputs_train: {train_inputs}')
 
                 # print('getting er_vocab....')
                 # er_vocab = self.data.get_er_vocab(inputs_train)
@@ -83,10 +87,10 @@ class Train:
 
                 # Entitty and relation training ids
                 # e1_idx = inputs_train[:, 0]
-                e1_idx = tf.slice(inputs_train, [0, 0], [inputs_train.shape[0].value, 1])
+                e1_idx = tf.slice(train_inputs, [0, 0], [train_inputs.shape[0].value, 1])
                 # print('e1_idx: {}'.format(e1_idx))
                 # r_idx = inputs_train[:, 1]
-                r_idx = tf.slice(inputs_train, [0, 1], [inputs_train.shape[0].value, 1])
+                r_idx = tf.slice(train_inputs, [0, 1], [train_inputs.shape[0].value, 1])
 
                 # print('targets_train: {}'.format(targets_train))
 
@@ -99,12 +103,12 @@ class Train:
                 #     targets_train = ((1.0 - self.label_smoothing) * targets_train) + \
                 #         (1.0 / targets_train.shape[1].value)
 
-                optimizer.minimize(lambda: self.loss(e1_idx, r_idx, targets_train))
+                optimizer.minimize(lambda: self.loss(e1_idx, r_idx, train_targets))
 
                 if iteration % 10 == 0:
                     print(f'iteration: {iteration + 1}')
 
-                    cost = self.loss(e1_idx, r_idx, targets_train)
+                    cost = self.loss(e1_idx, r_idx, train_targets)
                     print(f'cost: {cost}')
 
                 iteration += 1
@@ -131,16 +135,20 @@ class Train:
 
         validation_data = self.data.get_inputs_and_targets(valid_data_idxs)
 
-        for inputs_validation, labels_validation in validation_data.batch(self.batch_size):
+        for val_inputs, _ in validation_data:
 
             # inputs_validation = np.array(inputs_validation)
 
             # e1_idx = inputs_validation[:, 0]
-            e1_idx = tf.slice(inputs_validation, [0, 0], [inputs_validation.shape[0].value, 1])
+            # e1_idx = tf.slice(inputs_validation, [0, 0], [inputs_validation.shape[0].value, 1])
+            e1_idx = tf.slice(val_inputs, [0, 0], [val_inputs.shape[0].value, 1])
+            # e1_idx = tf.cast(e1_idx, tf.int32)
             # r_idx = inputs_validation[:, 1]
-            r_idx = tf.slice(inputs_validation, [0, 1], [inputs_validation.shape[0].value, 1])
+            # r_idx = tf.slice(inputs_validation, [0, 1], [inputs_validation.shape[0].value, 1])
+            r_idx = tf.slice(val_inputs, [0, 1], [val_inputs.shape[0].value, 1])
             # e2_idx = inputs_validation[:, 2]
-            e2_idx = labels_validation
+            # e2_idx = tf.slice(inputs_validation, [0, 2], [inputs_validation.shape[0].value, 1])
+            e2_idx = tf.slice(val_inputs, [0, 2], [val_inputs.shape[0].value, 1])
 
             logits = self.model(e1_idx, r_idx)
 
@@ -150,7 +158,7 @@ class Train:
             # print('e2_idx[0]: {}'.format(e2_idx[0]))
             # print('tf.where: {}'.format(tf.where(tf.equal(sort_idxs[0], e2_idx[0]))))
 
-            for j in range(inputs_validation.shape[0]):
+            for j in range(val_inputs.shape[0]):
 
                 rank = tf.where(tf.equal(sort_idxs[j], e2_idx[j]))
                 ranks.append(rank + 1)
@@ -233,4 +241,5 @@ if __name__ == '__main__':
     # intialise build
     trainer = Train(hypER, data, num_epoch=2)
     trainer.train_and_eval()
+    # trainer.evaluate()
     # trainer.test()

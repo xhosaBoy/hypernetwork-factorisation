@@ -73,7 +73,7 @@ def train_input_fn(params):
 
     train_data = data.get_inputs_and_targets(train_data_idxs, training=True)
 
-    ds = train_data.shuffle(buffer_size=50000).batch(batch_size, drop_remainder=True)
+    ds = train_data.shuffle(buffer_size=10000).batch(batch_size, drop_remainder=True)
     # ds = train_data.shuffle(buffer_size=50000)
 
     return ds
@@ -90,7 +90,7 @@ def eval_input_fn(params):
 
     validation_data = data.get_inputs_and_targets(valid_data_idxs)
 
-    ds = validation_data.batch(batch_size, drop_remainder=True)
+    ds = validation_data.shuffle(buffer_size=10000).batch(batch_size, drop_remainder=True)
 
     return ds
 
@@ -178,7 +178,7 @@ def model_fn(features, labels, mode, params):
     """model_fn constructs the ML model used to predict handwritten digits."""
 
     del params
-
+    targets = labels
     # image = features
     print('inputs: {}'.format(features))
     # inputs = np.array(image)
@@ -189,6 +189,7 @@ def model_fn(features, labels, mode, params):
     print('e1_idx: {}'.format(e1_idx))
     # r_idx = features[:, 1]
     r_idx = tf.slice(features, [0, 1], [features.shape[0].value, 1])
+    labels = tf.slice(features, [0, 2], [features.shape[0].value, 1])
 
     # if isinstance(image, dict):
     #     image = features["image"]
@@ -221,11 +222,9 @@ def model_fn(features, labels, mode, params):
     #     print('index: {}'.format(er_vocab[pair]))
     #     targets[idx, er_vocab[pair][0]] = 1.
 
-    targets = labels
-
-    # loss = tf.keras.losses.binary_crossentropy(
-    #     tf.cast(targets, tf.float32), tf.cast(predictions, tf.float32))
-    loss = tf.keras.losses.sparse_categorical_crossentropy(targets, predictions)
+    loss = tf.keras.losses.binary_crossentropy(
+        tf.cast(targets, tf.float32), tf.cast(predictions, tf.float32))
+    # loss = tf.keras.losses.sparse_categorical_crossentropy(targets, predictions)
     loss = tf.reduce_mean(loss)
 
     if mode == tf.estimator.ModeKeys.TRAIN:
