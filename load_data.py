@@ -299,9 +299,6 @@ class Data:
         # Assume that each row of `features` corresponds to the same row as `labels`.
         assert inputs.shape[0] == targets.shape[0]
 
-        inputs = inputs[:10000]
-        targets = targets[:10000]
-
         print('inputs shape: {}'.format(inputs.shape))
         print('targets shape: {}'.format(targets.shape))
 
