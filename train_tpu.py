@@ -36,14 +36,14 @@ tf.flags.DEFINE_string(
     "metadata.")
 
 # Model specific parameters
-tf.flags.DEFINE_string("data_dir", "",
-                       "Path to directory containing the Cifar10 dataset")
+tf.flags.DEFINE_string("data_dir", "gs://epoch-staging-bucket/hyppernetwork-factorisation/data",
+                       "Path to directory containing the HypER dataset")
 tf.flags.DEFINE_string(
     "model_dir", 'gs://epoch-staging-bucket/hyppernetwork-factorisation/output', "Estimator model_dir")
 tf.flags.DEFINE_integer("batch_size", 8,
                         "Mini-batch size for the training. Note that this "
                         "is the global batch size and not the per-shard batch.")
-tf.flags.DEFINE_integer("train_steps", 5000, "Total number of training steps.")
+tf.flags.DEFINE_integer("train_steps", 10000, "Total number of training steps.")
 tf.flags.DEFINE_integer("eval_steps", 1,
                         "Total number of evaluation steps. If `0`, evaluation "
                         "after training is skipped.")
@@ -73,8 +73,8 @@ def train_input_fn(params):
 
     train_data = data.get_inputs_and_targets(train_data_idxs, training=True)
 
-    ds = train_data.shuffle(buffer_size=10000).batch(batch_size, drop_remainder=True)
-    # ds = train_data.shuffle(buffer_size=50000)
+    # ds = train_data.shuffle(buffer_size=10000).batch(batch_size, drop_remainder=True)
+    ds = train_data.repeat()
 
     return ds
 
@@ -90,7 +90,8 @@ def eval_input_fn(params):
 
     validation_data = data.get_inputs_and_targets(valid_data_idxs)
 
-    ds = validation_data.shuffle(buffer_size=10000).batch(batch_size, drop_remainder=True)
+    # ds = validation_data.shuffle(buffer_size=10000).batch(batch_size, drop_remainder=True)
+    ds = validation_data
 
     return ds
 

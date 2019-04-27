@@ -266,7 +266,7 @@ class Data:
 
         return er_vocab
 
-    def get_inputs_and_targets(self, data_idxs, training=False):
+    def make_source_data(self, data_idxs, data_type='train'):
 
         data_idxs = np.array(data_idxs)
         # data_idxs = tf.convert_to_tensor(data_idxs)
@@ -299,60 +299,23 @@ class Data:
         # Assume that each row of `features` corresponds to the same row as `labels`.
         assert inputs.shape[0] == targets.shape[0]
 
-        print('inputs shape: {}'.format(inputs.shape))
-        print('targets shape: {}'.format(targets.shape))
-
-        print('truncting dataset...')
-
-        # truncate dataset
         inputs = inputs[:10000]
         targets = targets[:10000]
 
         print('inputs shape: {}'.format(inputs.shape))
         print('targets shape: {}'.format(targets.shape))
 
-        print('writing to validation file...')
-
         # with open('val_dataset.npz', 'wb') as training_set:
         #     np.savez_compressed(training_set, a=inputs, b=targets)
         #
         # print('writing to validation file complete!')
-        #
-        # if training:
-        #
-        #     print('reading from training file...')
-        #
-        #     with np.load('train_dataset1.npz') as data:
-        #         dataset_files = data
-        #         print('dataset files: {}'.format(dataset_files.files))
-        #         inputs = dataset_files['a']
-        #         targets = dataset_files['b']
-        #
-        #     print('reading from training file complete!')
-        #
-        # else:
-        #     # data_idxs = tf.convert_to_tensor(data_idxs)
-        #     # print('reading from memory...')
-        #     # inputs = tf.slice(data_idxs, [0, 0], [data_idxs.shape[0].value, 2])
-        #     # labels = tf.slice(data_idxs, [0, 2], [data_idxs.shape[0].value, 1])
-        #     # print('reading from memory complete!')
-        #
-        #     print('reading from validation file...')
-        #
-        #     with np.load('val_dataset.npz') as data:
-        #         dataset_files = data
-        #         print('dataset files: {}'.format(dataset_files.files))
-        #         inputs = dataset_files['a']
-        #         targets = dataset_files['b']
-        #
-        #     print('reading from validation file complete!')
 
-        # inputs_placeholder = tf.placeholder(inputs.dtype, inputs.shape)
-        # labels_placeholder = tf.placeholder(targets.dtype, targets.shape)
+        print('writing to {} file...'.format(data_type))
 
-        # print('writing to file complete!')
-        self.np_to_tfrecords(inputs, targets, 'test_record_file')
         # self.np_to_tfrecords(inputs, None, 'test_record_file')
+        self.np_to_tfrecords(inputs, targets, '{}_dataset'.format(data_type))
+
+        print('writing to {} file complete!'.format(data_type))
 
         # for serialized_example in tf.python_io.tf_record_iterator('test_record_file.tfrecords'):
         #     example = tf.train.Example()
@@ -365,20 +328,66 @@ class Data:
         # filenames = ['test_record_file.tfrecords']
         # raw_dataset = tf.data.TFRecordDataset(filenames)
         # raw_dataset = tf.python_io.tf_record_iterator('test_record_file.tfrecords')
-        raw_dataset = tf.data.TFRecordDataset('test_record_file.tfrecords')
+
+        print('reading from {} file...'.format(data_type))
+
+        raw_dataset = tf.data.TFRecordDataset('{}_dataset.tfrecords'.format(data_type))
         print(f'raw_dataset: {raw_dataset}')
 
-        # parsed_dataset = raw_dataset.map(self._parse_function)
-        # print(f'parsed_dataset: {parsed_dataset}')
+        print('reading from {} file complete!'.format(data_type))
+
+        parsed_dataset = raw_dataset.map(self._parse_function)
+        print(f'parsed_dataset: {parsed_dataset}')
+
+    def get_inputs_and_targets(self, training=False):
+
+        if training:
+
+            print('reading from training file...')
+
+            # with np.load('train_dataset1.npz') as data:
+            #     dataset_files = data
+            #     print('dataset files: {}'.format(dataset_files.files))
+            #     inputs = dataset_files['a']
+            #     targets = dataset_files['b']
+
+            raw_dataset = tf.data.TFRecordDataset('train_dataset.tfrecords')
+
+            # raw_dataset = tf.data.TFRecordDataset(
+            #     'gs://epoch-staging-bucket/hyppernetwork-factorisation/data/train_dataset_1.tfrecords')
+
+            print('reading from training file complete!')
+
+        else:
+            # data_idxs = tf.convert_to_tensor(data_idxs)
+            # print('reading from memory...')
+            # inputs = tf.slice(data_idxs, [0, 0], [data_idxs.shape[0].value, 2])
+            # labels = tf.slice(data_idxs, [0, 2], [data_idxs.shape[0].value, 1])
+            # print('reading from memory complete!')
+
+            print('reading from validation file...')
+
+            # with np.load('val_dataset.npz') as data:
+            #     dataset_files = data
+            #     print('dataset files: {}'.format(dataset_files.files))
+            #     inputs = dataset_files['a']
+            #     targets = dataset_files['b']
+
+            raw_dataset = tf.data.TFRecordDataset('val_dataset.tfrecords')
+
+            # raw_dataset = tf.data.TFRecordDataset(
+            #     'gs://epoch-staging-bucket/hyppernetwork-factorisation/data/val_dataset.tfrecords')
+
+            print('reading from validation file complete!')
 
         parsed_dataset = raw_dataset.apply(
             tf.contrib.data.map_and_batch(
                 self._parse_function,
                 batch_size=128,
-                num_parallel_batches=1,
+                num_parallel_batches=None,
                 drop_remainder=True))
 
-        dataset = parsed_dataset.prefetch(tf.contrib.data.AUTOTUNE)
+        # dataset = parsed_dataset.prefetch(tf.contrib.data.AUTOTUNE)
 
         # print('retrieving samples...')
         # for parsed_record in parsed_dataset.take(10):
@@ -387,7 +396,6 @@ class Data:
         # parsed_dataset = parsed_dataset.map(self._parse_example)
 
         # print('wrapping in tf.data object...')
-        # data = tf.data.Dataset.from_tensor_slices((inputs_placeholder, labels_placeholder))
         # data = tf.data.Dataset.from_tensor_slices((inputs, targets))
         # print('tf.data object created!')
 
@@ -398,4 +406,4 @@ class Data:
         # data = data.map(self._parse_example)
         # serialized_dataset = data.map(self.tf_serialize_example)
 
-        return dataset
+        return parsed_dataset

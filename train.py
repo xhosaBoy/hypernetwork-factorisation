@@ -52,9 +52,6 @@ class Train:
         return cost
 
     def train_and_eval(self):
-        # Prepare train input and targets
-        train_data_idxs = self.data.get_data_idxs(
-            self.data.train_data, self.data.entity_idxs, self.data.relation_idxs)
 
         learning_rate = self.learning_rate
 
@@ -70,13 +67,13 @@ class Train:
             iteration = 0
 
             print('loading data set...')
-            train_data = self.data.get_inputs_and_targets(train_data_idxs, training=True)
+            train_data = self.data.get_inputs_and_targets(training=True)
             print(f'train_data: {train_data}')
             print('loaded dataset!')
 
             for train_inputs, train_targets in train_data:
 
-                print(f'inputs_train: {train_inputs}')
+                # print(f'inputs_train: {train_inputs}')
 
                 # print('getting er_vocab....')
                 # er_vocab = self.data.get_er_vocab(inputs_train)
@@ -118,7 +115,7 @@ class Train:
             print()
 
             # Validate model
-            self.evaluate()
+            # self.evaluate()
 
     def evaluate(self):
 
@@ -128,12 +125,7 @@ class Train:
         for i in range(10):
             hits.append([])
 
-        valid_data_idxs = self.data.get_data_idxs(
-            self.data.valid_data, self.data.entity_idxs, self.data.relation_idxs)
-
-        print(f'Number of validation data points: {len(valid_data_idxs)}')
-
-        validation_data = self.data.get_inputs_and_targets(valid_data_idxs)
+        validation_data = self.data.get_inputs_and_targets()
 
         for val_inputs, _ in validation_data:
 
@@ -191,11 +183,6 @@ class Train:
         for i in range(10):
             hits.append([])
 
-        test_data_idxs = self.data.get_data_idxs(
-            self.data.test_data, self.data.entity_idxs, self.data.relation_idxs)
-
-        print(f'Number of test data points: {len(test_data_idxs)}')
-
         test_data = self.data.get_inputs_and_targets(test_data_idxs)
 
         for inputs_test, _ in test_data.batch(self.batch_size):
@@ -239,7 +226,7 @@ if __name__ == '__main__':
     hypER = HyperER(len(data.entities), len(data.relations))
 
     # intialise build
-    trainer = Train(hypER, data, num_epoch=2)
+    trainer = Train(hypER, data, num_epoch=1)
     trainer.train_and_eval()
     # trainer.evaluate()
     # trainer.test()
