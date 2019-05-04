@@ -21,9 +21,9 @@ class HyperER(tf.keras.Model):
         self.dense2_size_in = (1 - self.kernal_h + 1) * (self.entity_dim -
                                                          self.kernal_w + 1) * self.out_channels
 
-        self.inp_drop = 0.2
-        self.feature_map_drop = 0.2
-        self.hidden_drop = 0.3
+        # self.inp_drop = 0.2
+        # self.feature_map_drop = 0.2
+        # self.hidden_drop = 0.3
 
         self.weights_dense1 = tf.Variable(lambda: tf.glorot_normal_initializer()(
             [self.relation_dim, self.dense1_size_out]))
@@ -40,6 +40,13 @@ class HyperER(tf.keras.Model):
         self.embedding_matrix_relations = tf.Variable(lambda:
                                                       tf.glorot_normal_initializer()([self.num_relations, self.relation_dim]))
 
+        self.inp_drop = tf.keras.layers.Dropout(0.2)
+        self.hidden_drop = tf.keras.layers.Dropout(0.3)
+        self.feature_map_drop = tf.keras.layers.SpatialDropout2D(0.2)
+
+        # self.dense1 = tf.keras.layers.Dense(self.dense1_size_out)
+        # self.dense2 = tf.keras.layers.Dense(self.entity_dim)
+
     def conv1(self, x, k):
         conv_layer = tf.nn.depthwise_conv2d(x, k, [1, 1, 1, 1], padding='VALID')
 
@@ -54,15 +61,15 @@ class HyperER(tf.keras.Model):
     def dense2(self, x):
         dense_layer = tf.matmul(x, self.weights_dense2)
         dense_layer += self.bias_dense2
-        dense_layer = tf.nn.relu(dense_layer)
+        # dense_layer = tf.nn.relu(dense_layer)
 
         return dense_layer
 
-    def dropout(self, x, training=False, keep_prob=0.):
-        keep_prob = keep_prob if training else 1.
-        dropout_layer = tf.nn.dropout(x, keep_prob)
-
-        return dropout_layer
+    # def dropout(self, x, training=False, keep_prob=0.):
+    #     keep_prob = keep_prob if training else 0.
+    #     dropout_layer = tf.nn.dropout(x, keep_prob)
+    #
+    #     return dropout_layer
 
     def call(self, e1_idx, r_idx, training=False):
 
@@ -91,7 +98,10 @@ class HyperER(tf.keras.Model):
         # x has shape (MB, H, W, in_channels)
         x = tf.reshape(e1, [-1, 1, self.entity_dim, self.in_channels])
 
-        x = self.dropout(x, training, self.inp_drop)
+        # x = self.dropout(x, training, self.inp_drop)
+        if training:
+            x = self.inp_drop(x)
+        # x = self.inp_drop(x)(x, training=training)
 
         # Depthwise Convolution
         x = tf.transpose(x, perm=[1, 2, 0, 3])  # x has shape (H, W, MB, in_channels)
@@ -110,12 +120,18 @@ class HyperER(tf.keras.Model):
         x = tf.reduce_sum(x, axis=3)  # x has shape (MB, H - fh + 1, W - fw + 1, out_channels)
         x = tf.transpose(x, [0, 3, 1, 2])  # x has shape (MB, out_channels, H - fh + 1, W - fw + 1)
 
-        x = self.dropout(x, training, self.feature_map_drop)
+        # x = self.dropout(x, training, self.feature_map_drop)
+        if training:
+            x = self.feature_map_drop(x)
 
         # Fully connected layer
         x = tf.reshape(x, [e1.shape[1].value, -1])  # out 128 x 6144
         x = self.dense2(x)  # out shape 128 x 200
-        x = self.dropout(x, training, self.hidden_drop)
+        # x = self.dropout(x, training, self.hidden_drop)
+        if training:
+            x = self.hidden_drop(x)
+        # x = self.hidden_drop(x)(x, training=training)
+        x = tf.nn.relu(x)
 
         # Link prediction logits
         logits = tf.matmul(x, tf.transpose(e2))

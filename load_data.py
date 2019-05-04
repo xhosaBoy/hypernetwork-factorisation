@@ -7,7 +7,6 @@ from collections import defaultdict
 
 # 3rd Party
 import numpy as np
-import h5py
 import tensorflow as tf
 
 try:
@@ -85,6 +84,7 @@ class Data:
 
         batch = tf.parse_single_example(example_proto, sample_description)
         inputs = tf.cast(batch['X'], tf.int32)
+        # targets = tf.cast(batch['Y'], tf.int32)
         targets = batch['Y']
 
         return inputs, targets
@@ -329,12 +329,12 @@ class Data:
         print('reading from {} file...'.format(data_type))
 
         raw_dataset = tf.data.TFRecordDataset('{}_dataset.tfrecords'.format(data_type))
-        print(f'raw_dataset: {raw_dataset}')
+        print('raw_dataset: {}'.format(raw_dataset))
 
         print('reading from {} file complete!'.format(data_type))
 
         parsed_dataset = raw_dataset.map(self._parse_function)
-        print(f'parsed_dataset: {parsed_dataset}')
+        print('parsed_dataset: {}'.format(parsed_dataset))
 
     def get_inputs_and_targets(self, training=False):
 
@@ -348,10 +348,10 @@ class Data:
             #     inputs = dataset_files['a']
             #     targets = dataset_files['b']
 
-            raw_dataset = tf.data.TFRecordDataset('train_dataset.tfrecords')
+            # raw_dataset = tf.data.TFRecordDataset('train_dataset.tfrecords')
 
-            # raw_dataset = tf.data.TFRecordDataset(
-            #     'gs://epoch-staging-bucket/hyppernetwork-factorisation/data/train_dataset_1.tfrecords')
+            raw_dataset = tf.data.TFRecordDataset(
+                'train_dataset.tfrecords')
 
             print('reading from training file complete!')
 
@@ -370,10 +370,10 @@ class Data:
             #     inputs = dataset_files['a']
             #     targets = dataset_files['b']
 
-            raw_dataset = tf.data.TFRecordDataset('val_dataset.tfrecords')
+            # raw_dataset = tf.data.TFRecordDataset('val_dataset.tfrecords')
 
-            # raw_dataset = tf.data.TFRecordDataset(
-            #     'gs://epoch-staging-bucket/hyppernetwork-factorisation/data/val_dataset.tfrecords')
+            raw_dataset = tf.data.TFRecordDataset(
+                'val_dataset.tfrecords')
 
             print('reading from validation file complete!')
 
@@ -397,7 +397,7 @@ class Data:
         # print('tf.data object created!')
 
         # data = data.map(lambda input, label: tuple(tf.py_func(
-        #     self._read_py_function, [input, label], [tf.int32, tf.int32])))
+        #     self._read_py_function, [input, label], [tf.int32, tf.int32])))``
 
         # print('parsing to lower precision: tf.int32')
         # data = data.map(self._parse_example)

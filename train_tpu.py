@@ -40,11 +40,11 @@ tf.flags.DEFINE_string("data_dir", "gs://epoch-staging-bucket/hyppernetwork-fact
                        "Path to directory containing the HypER dataset")
 tf.flags.DEFINE_string(
     "model_dir", 'gs://epoch-staging-bucket/hyppernetwork-factorisation/output', "Estimator model_dir")
-tf.flags.DEFINE_integer("batch_size", 8,
+tf.flags.DEFINE_integer("batch_size", 128,
                         "Mini-batch size for the training. Note that this "
                         "is the global batch size and not the per-shard batch.")
-tf.flags.DEFINE_integer("train_steps", 10000, "Total number of training steps.")
-tf.flags.DEFINE_integer("eval_steps", 1,
+tf.flags.DEFINE_integer("train_steps", 13370, "Total number of training steps.")
+tf.flags.DEFINE_integer("eval_steps", 10,
                         "Total number of evaluation steps. If `0`, evaluation "
                         "after training is skipped.")
 tf.flags.DEFINE_float("learning_rate", 0.001, "Learning rate.")
@@ -71,7 +71,7 @@ def train_input_fn(params):
     train_data_idxs = data.get_data_idxs(
         data.train_data, data.entity_idxs, data.relation_idxs)
 
-    train_data = data.get_inputs_and_targets(train_data_idxs, training=True)
+    train_data = data.get_inputs_and_targets(training=True)
 
     # ds = train_data.shuffle(buffer_size=10000).batch(batch_size, drop_remainder=True)
     ds = train_data.repeat()
@@ -88,7 +88,7 @@ def eval_input_fn(params):
     valid_data_idxs = data.get_data_idxs(
         data.valid_data, data.entity_idxs, data.relation_idxs)
 
-    validation_data = data.get_inputs_and_targets(valid_data_idxs)
+    validation_data = data.get_inputs_and_targets()
 
     # ds = validation_data.shuffle(buffer_size=10000).batch(batch_size, drop_remainder=True)
     ds = validation_data
@@ -105,7 +105,7 @@ def predict_input_fn(params):
     test_data_idxs = data.get_data_idxs(
         data.test_data, data.entity_idxs, data.relation_idxs)
 
-    test_data = data.get_inputs_and_targets(test_data_idxs)
+    test_data = data.get_inputs_and_targets()
 
     # Take out top 10 samples from test data to make the predictions.
     ds = test_data.take(10).batch(batch_size)
@@ -159,15 +159,16 @@ def metric_fn(labels, logits):
             result = tf.cond(tf.squeeze(rank) <= hits_level, lambda: 1.0, lambda: 0.0)
             hits[hits_level].append(result)
 
-    print('Hits @10: {0}'.format(tf.reduce_mean(hits[9])))
-    print('Hits @3: {0}'.format(tf.reduce_mean(hits[2])))
-    print('Hits @1: {0}'.format(tf.reduce_mean(hits[0])))
-    print('Mean rank: {0}'.format(tf.reduce_mean(ranks)))
-    print('Mean reciprocal rank: {0}'.format(tf.reduce_mean(
-        tf.math.reciprocal(tf.cast(ranks, tf.float32)))))
+    # print('Hits @10: {0}'.format(tf.reduce_mean(hits[9])))
+    # print('Hits @3: {0}'.format(tf.reduce_mean(hits[2])))
+    # print('Hits @1: {0}'.format(tf.reduce_mean(hits[0])))
+    # print('Mean rank: {0}'.format(tf.reduce_mean(ranks)))
+    # print('Mean reciprocal rank: {0}'.format(tf.reduce_mean(
+    #     tf.math.reciprocal(tf.cast(ranks, tf.float32)))))
     print()
     #
-    accuracy = tf.metrics.mean(hits[9])
+    # accuracy = tf.metrics.mean(hits[10])
+    accuracy = tf.metrics.mean(ranks)
     # accuracy = tf.metrics.accuracy(
     #     labels=labels, predictions=tf.argmax(logits, axis=1))
     #
@@ -284,12 +285,13 @@ if __name__ == '__main__':
         print('########################## RUNNING VALIDATION ############################')
         evaluations = estimator.evaluate(input_fn=eval_input_fn, steps=FLAGS.eval_steps)
 
-        template = ('Accuracy is {:.1f}%. cost: {}')
+        # template = ('Accuracy is {:.1f}%. cost: {}')
+        template = ('Accuracy is {}. cost: {}')
 
         cost = evaluations['loss']
         accuracy = evaluations['accuracy']
 
-        print(template.format(100 * accuracy, cost))
+        print(template.format(accuracy, cost))
         print('########################## COMPLETED VALIDATION ##########################')
 
     # # Run prediction on top few samples of test data.

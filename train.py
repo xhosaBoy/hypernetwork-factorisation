@@ -1,3 +1,7 @@
+# std
+import sys
+import logging
+
 # 3rd Party
 import numpy as np
 import tensorflow as tf
@@ -5,6 +9,15 @@ import tensorflow as tf
 # internal
 from load_data import Data
 from model import HyperER
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+formatter = logging.Formatter('%(asctime)s:%(name)s:%(levelname)s:%(message)s')
+
+stream_handler = logging.StreamHandler(sys.stdout)
+stream_handler.setLevel(logging.INFO)
+stream_handler.setFormatter(formatter)
+logger.addHandler(stream_handler)
 
 try:
     tf.enable_eager_execution()
@@ -35,7 +48,7 @@ class Train:
     def loss(self, e1_idx, r_idx, targets):
 
         logits = self.model(e1_idx, r_idx, training=True)
-        # print('logits shape: {}'.format(logits.shape))
+        # print(f'logits: {logits}')
         predictions = tf.sigmoid(logits)
         loss = tf.keras.backend.binary_crossentropy(
             tf.cast(targets, tf.float32), tf.cast(predictions, tf.float32))
@@ -88,7 +101,6 @@ class Train:
                 # print('e1_idx: {}'.format(e1_idx))
                 # r_idx = inputs_train[:, 1]
                 r_idx = tf.slice(train_inputs, [0, 1], [train_inputs.shape[0].value, 1])
-
                 # print('targets_train: {}'.format(targets_train))
 
                 # targets_train = np.zeros((len(inputs_train), len(self.data.entities)))
@@ -103,10 +115,10 @@ class Train:
                 optimizer.minimize(lambda: self.loss(e1_idx, r_idx, train_targets))
 
                 if iteration % 10 == 0:
-                    print(f'iteration: {iteration + 1}')
+                    logger.info(f'ITERATION: {iteration + 1}')
 
                     cost = self.loss(e1_idx, r_idx, train_targets)
-                    print(f'cost: {cost}')
+                    logger.info(f'cost: {cost}')
 
                 iteration += 1
 
@@ -115,7 +127,7 @@ class Train:
             print()
 
             # Validate model
-            # self.evaluate()
+            self.evaluate()
 
     def evaluate(self):
 
@@ -144,6 +156,7 @@ class Train:
 
             logits = self.model(e1_idx, r_idx)
 
+            # print(f'logits: {logits.shape}')
             # e2_idx = tf.convert_to_tensor(e2_idx)
             sort_idxs = tf.argsort(logits, axis=1, direction='DESCENDING')
 
@@ -226,7 +239,7 @@ if __name__ == '__main__':
     hypER = HyperER(len(data.entities), len(data.relations))
 
     # intialise build
-    trainer = Train(hypER, data, num_epoch=1)
+    trainer = Train(hypER, data, num_epoch=10)
     trainer.train_and_eval()
     # trainer.evaluate()
     # trainer.test()
