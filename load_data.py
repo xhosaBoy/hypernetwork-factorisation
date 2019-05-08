@@ -52,43 +52,6 @@ class Data:
         # print('label: {}'.format(label_one_hot))
         return input, label_one_hot
 
-    def _parse_example(self, x, y):
-
-        x = tf.cast(x, tf.int32)
-        y = tf.cast(y, tf.int32)
-
-        return x, y
-
-    def _parse_vocabulary(self, x, lst):
-
-        lst.append(x)
-
-        return lst
-
-    def _parse_function(self, example_proto):
-        # Parse the input tf.Example proto using the dictionary above.
-        # example = tf.train.Example()
-        # print(f'serialized_example: {serialized_example}')
-        # example.ParseFromString(example_proto)
-        # x_1 = example.features.feature['X'].float_list.value
-        # y_1 = example.features.feature['Y'].float_list.value
-
-        # sample_description = {
-        #     'X': tf.FixedLenFeature([], tf.float32),
-        #     'Y': tf.FixedLenFeature([], tf.float32)
-        # }
-        sample_description = {
-            'X': tf.FixedLenFeature([3], tf.float32, default_value=[0.0, 0.0, 0.0]),
-            'Y': tf.FixedLenFeature([40943], tf.float32, default_value=[0.0] * 40943),
-        }
-
-        batch = tf.parse_single_example(example_proto, sample_description)
-        inputs = tf.cast(batch['X'], tf.int32)
-        # targets = tf.cast(batch['Y'], tf.int32)
-        targets = batch['Y']
-
-        return inputs, targets
-
     # The following functions can be used to convert a value to a type compatible
     # with tf.Example.
     def _bytes_feature(slef, value):
@@ -129,6 +92,69 @@ class Data:
             tf.string)      # the return type is <a href="../../api_docs/python/tf#string"><code>tf.string</code></a>.
 
         return tf.reshape(tf_string, ())  # The result is a scalar
+
+    def _parse_example(self, x, y):
+
+        x = tf.cast(x, tf.int32)
+        y = tf.cast(y, tf.int32)
+
+        return x, y
+
+    def _parse_vocabulary(self, x, lst):
+
+        lst.append(x)
+
+        return lst
+
+    def _parse_function_train(self, example_proto):
+        # Parse the input tf.Example proto using the dictionary above.
+        # example = tf.train.Example()
+        # print(f'serialized_example: {serialized_example}')
+        # example.ParseFromString(example_proto)
+        # x_1 = example.features.feature['X'].float_list.value
+        # y_1 = example.features.feature['Y'].float_list.value
+
+        # sample_description = {
+        #     'X': tf.FixedLenFeature([], tf.float32),
+        #     'Y': tf.FixedLenFeature([], tf.float32)
+        # }
+
+        sample_description = {
+            'X': tf.FixedLenFeature([2], tf.int64, default_value=[0, 0]),
+            'Y': tf.FixedLenFeature([40943], tf.float32, default_value=[0.0] * 40943),
+        }
+
+        batch = tf.parse_single_example(example_proto, sample_description)
+        inputs = tf.cast(batch['X'], tf.int32)
+        # targets = tf.cast(batch['Y'], tf.int32)
+        targets = batch['Y']
+
+        return inputs, targets
+
+    def _parse_function(self, example_proto):
+        # Parse the input tf.Example proto using the dictionary above.
+        # example = tf.train.Example()
+        # print(f'serialized_example: {serialized_example}')
+        # example.ParseFromString(example_proto)
+        # x_1 = example.features.feature['X'].float_list.value
+        # y_1 = example.features.feature['Y'].float_list.value
+
+        # sample_description = {
+        #     'X': tf.FixedLenFeature([], tf.float32),
+        #     'Y': tf.FixedLenFeature([], tf.float32)
+        # }
+
+        sample_description = {
+            'X': tf.FixedLenFeature([3], tf.int64, default_value=[0, 0, 0]),
+            'Y': tf.FixedLenFeature([40943], tf.float32, default_value=[0.0] * 40943),
+        }
+
+        batch = tf.parse_single_example(example_proto, sample_description)
+        inputs = tf.cast(batch['X'], tf.int32)
+        # targets = tf.cast(batch['Y'], tf.int32)
+        targets = batch['Y']
+
+        return inputs, targets
 
     def np_to_tfrecords(self, X, Y, file_path_prefix, verbose=True):
         """
@@ -271,30 +297,36 @@ class Data:
         data_idxs = np.array(data_idxs)
         # data_idxs = tf.convert_to_tensor(data_idxs)
 
-        er_vocab = self.get_er_vocab(data_idxs)
-        er_vocab_pairs = list(er_vocab.keys())
+        if data_type == 'train':
+            er_vocab = self.get_er_vocab(data_idxs)
+            er_vocab_pairs = list(er_vocab.keys())
 
-        # inputs = er_vocab_pairs if training else data_idxs
-        inputs = er_vocab_pairs
-        inputs = np.array(inputs)
+            # inputs = er_vocab_pairs if training else data_idxs
+            inputs = er_vocab_pairs
+            inputs = np.array(inputs)
 
-        # inputs = data_idxs[:, [0, 1]]
-        # inputs = tf.slice(data_idxs, [0, 0], [data_idxs.shape[0].value, 2])
-        # print('inputs: {}'.format(inputs))
-        # inputs = tf.convert_to_tensor(inputs)
+            # inputs = data_idxs[:, [0, 1]]
+            # inputs = tf.slice(data_idxs, [0, 0], [data_idxs.shape[0].value, 2])
+            # print('inputs: {}'.format(inputs))
+            # inputs = tf.convert_to_tensor(inputs)
 
-        # set all e2 relations for e1, r pair to true
-        labels = np.zeros((len(inputs)))
-        targets = np.zeros((len(inputs), len(self.entities)))
-        # labels = data_idxs[:, 2]
-        # labels = tf.slice(data_idxs, [0, 2], [data_idxs.shape[0].value, 1])
+            # set all e2 relations for e1, r pair to true
+            targets = np.zeros((len(inputs), len(self.entities)))
+            # labels = data_idxs[:, 2]
+            # labels = tf.slice(data_idxs, [0, 2], [data_idxs.shape[0].value, 1])
 
-        for idx, pair in enumerate(er_vocab_pairs):
-            labels[idx] = er_vocab[pair][0]
-            targets[idx, er_vocab[pair]] = 1.
+            for idx, pair in enumerate(er_vocab_pairs):
+                targets[idx, er_vocab[pair]] = 1.
+        else:
+            inputs = data_idxs
+            inputs = np.array(inputs)
 
-        inputs = np.column_stack((inputs, labels))
-        # labels = tf.convert_to_tensor(labels)
+            targets = np.zeros((len(inputs), len(self.entities)))
+
+            for idx, triple in enumerate(inputs):
+                targets[idx, triple[2]] = 1.
+
+            # labels = tf.convert_to_tensor(labels)
 
         # Assume that each row of `features` corresponds to the same row as `labels`.
         assert inputs.shape[0] == targets.shape[0]
@@ -348,12 +380,19 @@ class Data:
             #     inputs = dataset_files['a']
             #     targets = dataset_files['b']
 
-            # raw_dataset = tf.data.TFRecordDataset('train_dataset.tfrecords')
+            raw_dataset = tf.data.TFRecordDataset('train_dataset.tfrecords')
 
-            raw_dataset = tf.data.TFRecordDataset(
-                'train_dataset.tfrecords')
+            # raw_dataset = tf.data.TFRecordDataset(
+            #     'gs://epoch-staging-bucket/hyppernetwork-factorisation/data/train_dataset.tfrecords')
 
             print('reading from training file complete!')
+
+            parsed_dataset = raw_dataset.apply(
+                tf.contrib.data.map_and_batch(
+                    self._parse_function_train,
+                    batch_size=128,
+                    num_parallel_batches=None,
+                    drop_remainder=True))
 
         else:
             # data_idxs = tf.convert_to_tensor(data_idxs)
@@ -370,19 +409,19 @@ class Data:
             #     inputs = dataset_files['a']
             #     targets = dataset_files['b']
 
-            # raw_dataset = tf.data.TFRecordDataset('val_dataset.tfrecords')
+            raw_dataset = tf.data.TFRecordDataset('val_dataset.tfrecords')
 
-            raw_dataset = tf.data.TFRecordDataset(
-                'val_dataset.tfrecords')
+            # raw_dataset = tf.data.TFRecordDataset(
+            #     'gs://epoch-staging-bucket/hyppernetwork-factorisation/data/val_dataset.tfrecords')
 
             print('reading from validation file complete!')
 
-        parsed_dataset = raw_dataset.apply(
-            tf.contrib.data.map_and_batch(
-                self._parse_function,
-                batch_size=128,
-                num_parallel_batches=None,
-                drop_remainder=True))
+            parsed_dataset = raw_dataset.apply(
+                tf.contrib.data.map_and_batch(
+                    self._parse_function,
+                    batch_size=128,
+                    num_parallel_batches=None,
+                    drop_remainder=True))
 
         # dataset = parsed_dataset.prefetch(tf.contrib.data.AUTOTUNE)
 

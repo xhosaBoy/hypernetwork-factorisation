@@ -19,11 +19,16 @@ stream_handler.setLevel(logging.INFO)
 stream_handler.setFormatter(formatter)
 logger.addHandler(stream_handler)
 
+file_handler = logging.FileHandler('train.log')
+file_handler.setLevel(logging.INFO)
+file_handler.setFormatter(formatter)
+logger.addHandler(file_handler)
+
 try:
     tf.enable_eager_execution()
-    print('Running in Eager mode.')
+    logger.info('Running in Eager mode.')
 except ValueError:
-    print('Already running in Eager mode')
+    logger.info('Already running in Eager mode')
 
 
 class Train:
@@ -75,14 +80,14 @@ class Train:
         # Training loop
         for epoch in range(self.num_epoch):
 
-            print(f'epoch: {epoch + 1}')
+            logger.info(f'epoch: {epoch + 1}')
 
             iteration = 0
 
-            print('loading data set...')
+            logger.info('loading data set...')
             train_data = self.data.get_inputs_and_targets(training=True)
-            print(f'train_data: {train_data}')
-            print('loaded dataset!')
+            logger.info('train_data: {}'.format(train_data))
+            logger.info('loaded dataset!')
 
             for train_inputs, train_targets in train_data:
 
@@ -112,19 +117,22 @@ class Train:
                 #     targets_train = ((1.0 - self.label_smoothing) * targets_train) + \
                 #         (1.0 / targets_train.shape[1].value)
 
-                optimizer.minimize(lambda: self.loss(e1_idx, r_idx, train_targets))
+                extra_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+                with tf.control_dependencies(extra_ops):
+                    optimizer.minimize(lambda: self.loss(e1_idx, r_idx, train_targets),
+                                       global_step=tf.train.get_or_create_global_step())
 
                 if iteration % 10 == 0:
-                    logger.info(f'ITERATION: {iteration + 1}')
+                    logger.info('ITERATION: {}'.format(iteration + 1))
 
                     cost = self.loss(e1_idx, r_idx, train_targets)
-                    logger.info(f'cost: {cost}')
+                    logger.info('cost: {}'.format(cost))
 
                 iteration += 1
 
             losses.append(cost)
-            print(f'mean cost: {np.mean(losses)}')
-            print()
+            logger.info('mean cost: {}'.format(np.mean(losses)))
+            logger.info(' ')
 
             # Validate model
             self.evaluate()
@@ -180,13 +188,13 @@ class Train:
                     result = tf.cond(tf.squeeze(rank) <= hits_level, lambda: 1.0, lambda: 0.0)
                     hits[hits_level].append(result)
 
-        print('Hits @10: {0}'.format(tf.reduce_mean(hits[9])))
-        print('Hits @3: {0}'.format(tf.reduce_mean(hits[2])))
-        print('Hits @1: {0}'.format(tf.reduce_mean(hits[0])))
-        print('Mean rank: {0}'.format(tf.reduce_mean(ranks)))
-        print('Mean reciprocal rank: {0}'.format(tf.reduce_mean(
+        logger.info('Hits @10: {0}'.format(tf.reduce_mean(hits[9])))
+        logger.info('Hits @3: {0}'.format(tf.reduce_mean(hits[2])))
+        logger.info('Hits @1: {0}'.format(tf.reduce_mean(hits[0])))
+        logger.info('Mean rank: {0}'.format(tf.reduce_mean(ranks)))
+        logger.info('Mean reciprocal rank: {0}'.format(tf.reduce_mean(
             tf.math.reciprocal(tf.cast(ranks, tf.float32)))))
-        print()
+        logger.info(' ')
 
     def test(self):
 
@@ -222,12 +230,11 @@ class Train:
                     else:
                         hits[hits_level].append(0.0)
 
-        print('Hits @10: {0}'.format(np.mean(hits[9])))
-        print('Hits @3: {0}'.format(np.mean(hits[2])))
-        print('Hits @1: {0}'.format(np.mean(hits[0])))
-        print('Mean rank: {0}'.format(np.mean(ranks)))
-        print('Mean reciprocal rank: {0}'.format(np.mean(1. / np.array(ranks))))
-        print()
+        logger.info('Hits @10: {0}'.format(np.mean(hits[9])))
+        logger.info('Hits @3: {0}'.format(np.mean(hits[2])))
+        logger.info('Hits @1: {0}'.format(np.mean(hits[0])))
+        logger.info('Mean rank: {0}'.format(np.mean(ranks)))
+        logger.info('Mean reciprocal rank: {0}'.format(np.mean(1. / np.array(ranks))))
 
 
 if __name__ == '__main__':
@@ -239,7 +246,7 @@ if __name__ == '__main__':
     hypER = HyperER(len(data.entities), len(data.relations))
 
     # intialise build
-    trainer = Train(hypER, data, num_epoch=10)
+    trainer = Train(hypER, data, num_epoch=100)
     trainer.train_and_eval()
     # trainer.evaluate()
     # trainer.test()

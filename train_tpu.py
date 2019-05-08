@@ -43,7 +43,7 @@ tf.flags.DEFINE_string(
 tf.flags.DEFINE_integer("batch_size", 128,
                         "Mini-batch size for the training. Note that this "
                         "is the global batch size and not the per-shard batch.")
-tf.flags.DEFINE_integer("train_steps", 13370, "Total number of training steps.")
+tf.flags.DEFINE_integer("train_steps", 13370 * 2, "Total number of training steps.")
 tf.flags.DEFINE_integer("eval_steps", 10,
                         "Total number of evaluation steps. If `0`, evaluation "
                         "after training is skipped.")
@@ -167,8 +167,8 @@ def metric_fn(labels, logits):
     #     tf.math.reciprocal(tf.cast(ranks, tf.float32)))))
     print()
     #
-    # accuracy = tf.metrics.mean(hits[10])
-    accuracy = tf.metrics.mean(ranks)
+    accuracy = tf.metrics.mean(hits[9])
+    # accuracy = tf.metrics.mean(ranks)
     # accuracy = tf.metrics.accuracy(
     #     labels=labels, predictions=tf.argmax(logits, axis=1))
     #
