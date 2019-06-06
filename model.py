@@ -34,6 +34,11 @@ class HyperER(tf.keras.Model):
                                           tf.glorot_normal_initializer()([self.dense2_size_in, self.entity_dim]))
         self.bias_dense2 = tf.Variable(lambda: tf.glorot_normal_initializer()([self.entity_dim]))
 
+        # self.bias_logits = tf.Variable(
+        #     lambda: tf.glorot_normal_initializer()([128, self.num_entities]))
+        self.bias_logits = tf.Variable(
+            lambda: tf.glorot_normal_initializer()([self.num_entities]))
+
         # Generate random embedding representaitons for  and relations
         self.embedding_matrix_entities = tf.Variable(lambda:
                                                      tf.glorot_normal_initializer()([self.num_entities, self.entity_dim]))
@@ -45,11 +50,13 @@ class HyperER(tf.keras.Model):
         self.bn2 = tf.keras.layers.BatchNormalization(axis=1, momentum=0.1, epsilon=1e-05)
 
         self.inp_drop = tf.keras.layers.Dropout(0.2)
-        self.hidden_drop = tf.keras.layers.Dropout(0.3)
         self.feature_map_drop = tf.keras.layers.SpatialDropout2D(0.2)
+        self.hidden_drop = tf.keras.layers.Dropout(0.3)
 
         # self.dense1 = tf.keras.layers.Dense(self.dense1_size_out)
         # self.dense2 = tf.keras.layers.Dense(self.entity_dim)
+
+        self.add = tf.keras.layers.Add()
 
     def conv1(self, x, k):
         conv_layer = tf.nn.depthwise_conv2d(x, k, [1, 1, 1, 1], padding='VALID')
@@ -102,8 +109,7 @@ class HyperER(tf.keras.Model):
         # x has shape (MB, H, W, in_channels)
         x = tf.reshape(e1, [-1, 1, self.entity_dim, self.in_channels])
 
-        x = self.bn0(x, training=training)
-        # x = self.dropout(x, training, self.inp_drop)
+        # x = self.bn0(x, training=training)
         # if training:
         #     x = self.inp_drop(x)
         x = self.inp_drop(x, training=training)
@@ -120,32 +126,38 @@ class HyperER(tf.keras.Model):
         # x has shape (H - fh + 1, W - fw + 1, MB, in_channels, out_channels)
         x = tf.reshape(x, [1 - self.kernal_h + 1, self.entity_dim - self.kernal_w +
                            1, e1.shape[1].value, self.in_channels, self.out_channels])
+
         # x has shape (MB, H - fh + 1, W - fw + 1, in_channels, out_channels)
         x = tf.transpose(x, [2, 0, 1, 3, 4])
         x = tf.reduce_sum(x, axis=3)  # x has shape (MB, H - fh + 1, W - fw + 1, out_channels)
         # x = tf.transpose(x, [0, 3, 1, 2])  # x has shape (MB, out_channels, H - fh + 1, W - fw + 1)
+        x = tf.transpose(x, [0, 3, 1, 2])  # x has shape (MB, out_channels, H - fh + 1, W - fw + 1)
 
-        x = self.bn1(x, training=training)
-        # x = self.dropout(x, training, self.feature_map_drop)
+        # x = self.bn1(x, training=training)
         # if training:
         #     x = self.feature_map_drop(x)
         x = self.feature_map_drop(x, training=training)
 
         # Fully connected layer
-        x = tf.transpose(x, [0, 3, 1, 2])  # x has shape (MB, out_channels, H - fh + 1, W - fw + 1)
         x = tf.reshape(x, [e1.shape[1].value, -1])  # out 128 x 6144
 
         x = self.dense2(x)  # out shape 128 x 200
+
+        x = self.hidden_drop(x, training=training)
+        # x = self.bn2(x, training=training)
+
         x = tf.nn.relu(x)
 
         # x = self.bn2(x, training=training)
-        # x = self.dropout(x, training, self.hidden_drop)
         # if training:
         #     x = self.hidden_drop(x)
         # x = self.hidden_drop(x, training=training)
-        # x = self.hidden_drop(x)(x, training=training)
 
         # Link prediction logits
         logits = tf.matmul(x, tf.transpose(e2))
+        # logits = self.add([logits, tf.broadcast_to(self.bias_logits, logits.shape)])
+        # logits = self.add([logits, self.bias_logits])
+        bias_logits = tf.broadcast_to(self.bias_logits, [logits.shape[0].value, 40943])
+        logits = self.add([logits, bias_logits])
 
         return logits

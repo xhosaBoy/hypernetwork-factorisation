@@ -5,6 +5,7 @@ from __future__ import print_function
 
 import os
 import sys
+from datetime import datetime
 
 # 3rd party
 import numpy as np
@@ -43,8 +44,8 @@ tf.flags.DEFINE_string(
 tf.flags.DEFINE_integer("batch_size", 128,
                         "Mini-batch size for the training. Note that this "
                         "is the global batch size and not the per-shard batch.")
-tf.flags.DEFINE_integer("train_steps", 13370 * 2, "Total number of training steps.")
-tf.flags.DEFINE_integer("eval_steps", 10,
+tf.flags.DEFINE_integer("train_steps", 1337 * 20, "Total number of training steps.")  # 13370
+tf.flags.DEFINE_integer("eval_steps", 78,
                         "Total number of evaluation steps. If `0`, evaluation "
                         "after training is skipped.")
 tf.flags.DEFINE_float("learning_rate", 0.001, "Learning rate.")
@@ -74,7 +75,7 @@ def train_input_fn(params):
     train_data = data.get_inputs_and_targets(training=True)
 
     # ds = train_data.shuffle(buffer_size=10000).batch(batch_size, drop_remainder=True)
-    ds = train_data.repeat()
+    ds = train_data.shuffle(buffer_size=1000).repeat()
 
     return ds
 
@@ -113,7 +114,7 @@ def predict_input_fn(params):
     return ds
 
 
-def metric_fn(labels, logits):
+def metric_fn(features, labels, logits):
 
     hits = []
     ranks = []
@@ -121,10 +122,50 @@ def metric_fn(labels, logits):
     for i in range(10):
         hits.append([])
 
-    # data = Data(dataset='WN18', reverse=False)
+    samples = []
 
-    # valid_data_idxs = data.get_data_idxs(
-    #     data.valid_data, data.entity_idxs, data.relation_idxs)
+    data = Data(dataset='WN18', reverse=True)
+
+    valid_data_idxs = data.get_data_idxs(
+        data.valid_data, data.entity_idxs, data.relation_idxs)
+
+    # test_data_idxs = data.get_data_idxs(data)
+    er_vocab = data.get_er_vocab(data.get_data_idxs(
+        data.valid_data, data.entity_idxs, data.relation_idxs))
+
+    for i in range(0, len(valid_data_idxs), 128):
+
+        data_batch, _ = data.get_batch(er_vocab, valid_data_idxs, i)
+
+        e1_idx = data_batch[:, 0]
+        r_idx = data_batch[:, 1]
+        e2_idx = data_batch[:, 2]
+
+    for j in range(data_batch.shape[0]):
+
+        logits_list = []
+
+        filt = er_vocab[(data_batch[j][0], data_batch[j][1])]
+        # print('filt len: {}'.format(len(filt)))
+        target_value = logits[j][e2_idx[j]]
+        # target_value = logits[j, e2_idx[j]].item()
+
+        # logits[j, filt] = 0.0
+        # logits[j, e2_idx[j]] = target_value
+
+        logits_unstacked = tf.unstack(logits[j])
+        # print('unstacked len: {}'.format(len(logits_unstacked)))
+
+        for it in range(len(logits_unstacked)):
+            logits_list.append(logits_unstacked[it])
+
+        for k in range(len(filt)):
+            # index = tf.gather(tf.unstack(e2_idx), j)[0]
+            result = tf.cond(tf.equal(e2_idx[j], filt[k]), lambda: target_value, lambda: 0.0)
+            logits_list[filt[k]] = result
+            # print('result: {}'.format(result))
+
+        samples.append(logits_list)
 
     # print('Number of validation data points: {}'.format(len(valid_data_idxs)))
 
@@ -134,7 +175,48 @@ def metric_fn(labels, logits):
 
     # e2_idx = inputs_validation[:, 2]
     e2_idx = labels
-    print('e2_idx: {}'.format(e2_idx))
+    logits = tf.stack(samples)
+    # print('e2_idx: {}'.format(e2_idx))
+    #
+    # for j in range(features.shape[0]):
+    #
+    #     logits_list = []
+    #
+    #     filt = er_vocab[(features[j][0], features[j][1])]
+    #     print('filt len: {}'.format(filt.shape[0]))
+    #     # print('er_vocab: {}'.format(
+    #     #     (val_inputs[j][0].numpy(), val_inputs[j][1].numpy())))
+    #
+    #     # print('len(filt): {}'.format(len(filt)))
+    #     # print('e2_idx: {}'.format(e2_idx[j][0]))
+    #
+    #     target_value = logits[j][e2_idx[j][0]]
+    #
+    #     # logits_list[j, filt] = 0.0
+    #     logits_unstacked = tf.unstack(logits[j])
+    #     # print('unstacked len: {}'.format(len(logits_unstacked)))
+    #
+    #     for it in range(len(logits_unstacked)):
+    #         logits_list.append(logits_unstacked[it])
+    #
+    #     for k in range(len(filt)):
+    #         index = tf.gather(tf.unstack(e2_idx), j)[0]
+    #         result = tf.cond(tf.equal(index, filt[k]), lambda: target_value, lambda: 0.0)
+    #         logits_list[filt[k]] = result
+    #         print('result: {}'.format(result))
+
+    # tmp = []
+    # for it in range(len(tf.unstack(e2_idx))):
+    #     # logits_list[e2_idx[j][0]] = target_value
+    #     index = tf.gather(tf.unstack(e2_idx), j)[0]
+    #     # if it == index:
+    #     #     print('index: {}'.format(index))
+    #     result = tf.cond(tf.equal(index, tf.constant(it)), lambda: logits_list[index], lambda: 0.0)
+    #     print('result: {}'.format(result))
+    # logits_list[index] = target_value
+
+    # print('logits list len: {}'.format(len(logits_list)))
+    # samples.append(logits_list)
 
     sort_idxs = tf.argsort(logits, axis=1, direction='DESCENDING')
     # sort_idxs = tf.unstack(sort_idxs)
@@ -166,6 +248,7 @@ def metric_fn(labels, logits):
     # print('Mean reciprocal rank: {0}'.format(tf.reduce_mean(
     #     tf.math.reciprocal(tf.cast(ranks, tf.float32)))))
     print()
+    print('made it...')
     #
     accuracy = tf.metrics.mean(hits[9])
     # accuracy = tf.metrics.mean(ranks)
@@ -180,7 +263,11 @@ def model_fn(features, labels, mode, params):
     """model_fn constructs the ML model used to predict handwritten digits."""
 
     del params
+
     targets = labels
+    # if self.label_smoothing:
+    targets = ((1.0 - 0.1) * targets) + (1.0 / targets.shape[1].value)
+
     # image = features
     print('inputs: {}'.format(features))
     # inputs = np.array(image)
@@ -228,28 +315,36 @@ def model_fn(features, labels, mode, params):
         tf.cast(targets, tf.float32), tf.cast(predictions, tf.float32))
     # loss = tf.keras.losses.sparse_categorical_crossentropy(targets, predictions)
     loss = tf.reduce_mean(loss)
+    global_step = tf.train.get_or_create_global_step()
 
     if mode == tf.estimator.ModeKeys.TRAIN:
 
         learning_rate = tf.train.exponential_decay(
             FLAGS.learning_rate,
-            tf.train.get_global_step(),
-            decay_steps=100000,
-            decay_rate=0.96)
+            global_step,
+            decay_steps=1337,
+            decay_rate=0.99,
+            staircase=True)
 
-        optimizer = tf.train.AdamOptimizer(learning_rate=FLAGS.learning_rate)
+        optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
 
         if FLAGS.use_tpu:
             optimizer = tf.contrib.tpu.CrossShardOptimizer(optimizer)
 
+        # Batch normalization requires UPDATE_OPS to be added as a dependency to
+        # the train operation.
+        update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+        with tf.control_dependencies(update_ops):
+            train_op = optimizer.minimize(loss, global_step=global_step)
+
         return tf.contrib.tpu.TPUEstimatorSpec(
             mode=mode,
             loss=loss,
-            train_op=optimizer.minimize(loss, tf.train.get_global_step()))
+            train_op=train_op)
 
     if mode == tf.estimator.ModeKeys.EVAL:
         return tf.contrib.tpu.TPUEstimatorSpec(
-            mode=mode, loss=loss, eval_metrics=(metric_fn, [labels, logits]))
+            mode=mode, loss=loss, eval_metrics=(metric_fn, [features, labels, logits]))
 
 
 if __name__ == '__main__':
@@ -291,7 +386,8 @@ if __name__ == '__main__':
         cost = evaluations['loss']
         accuracy = evaluations['accuracy']
 
-        print(template.format(accuracy, cost))
+        print(template.format(100 * accuracy, cost))
+        print(datetime.now())
         print('########################## COMPLETED VALIDATION ##########################')
 
     # # Run prediction on top few samples of test data.

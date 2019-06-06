@@ -292,6 +292,17 @@ class Data:
 
         return er_vocab
 
+    def get_batch(self, er_vocab, er_vocab_pairs, idx):
+
+        batch = er_vocab_pairs[idx:min(idx + 128, len(er_vocab_pairs))]
+
+        targets = np.zeros((len(batch), len(self.entities)))
+
+        for idx, pair in enumerate(batch):
+            targets[idx, er_vocab[pair]] = 1.
+
+        return np.array(batch), targets
+
     def make_source_data(self, data_idxs, data_type='train'):
 
         data_idxs = np.array(data_idxs)
